@@ -1,41 +1,11 @@
-"""
-LangGraph AI Assistant — Premium Chat UI
-Frontend : Streamlit (custom glassmorphism theme)
-Backend  : LangGraph + Groq (llama-3.3-70b-versatile)
-
-This file is split into two clearly marked zones:
-
-  1. BACKEND  — the LangGraph / ChatGroq wiring. Kept in the exact
-     shape the brief specified (CONFIG, chatbot.invoke, message_history,
-     st.session_state, ChatGroq, llama-3.3-70b-versatile). If your real
-     backend differs even slightly, just paste it in over this block —
-     nothing below depends on its internals, only on the names
-     `chatbot`, `CONFIG` and `st.session_state.message_history`.
-
-  2. FRONTEND — everything visual. Dark glass theme, gradient bubbles,
-     sidebar, welcome screen, typing indicator, sticky input.
-"""
-
+import streamlit as st
 import os
 import uuid
 from datetime import datetime
-
-import streamlit as st
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, MessagesState, StateGraph
 
-# ============================================================================
-# 1. BACKEND — LangGraph + Groq   (DO NOT MODIFY IN PRODUCTION)
-# ----------------------------------------------------------------------------
-# Swap this block for your existing implementation if it differs — the
-# frontend only ever calls `chatbot.invoke(..., config=CONFIG)` and reads
-# `st.session_state.message_history`, so naming compatibility is all that
-# matters.
-# ============================================================================
-
+# Load environment variables
 load_dotenv()  # reads GROQ_API_KEY from your existing .env file
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -49,29 +19,9 @@ if BACKEND_READY:
         temperature=0.7,
     )
 
-    def chat_node(state: MessagesState):
-        response = llm.invoke(state["messages"])
-        return {"messages": [response]}
-
-    graph = StateGraph(MessagesState)
-    graph.add_node("chat_node", chat_node)
-    graph.add_edge(START, "chat_node")
-    graph.add_edge("chat_node", END)
-
-    checkpointer = MemorySaver()
-    chatbot = graph.compile(checkpointer=checkpointer)
-
 # ============================================================================
-# END BACKEND
+# PAGE CONFIGURATION
 # ============================================================================
-
-
-# ============================================================================
-# 2. FRONTEND
-# ============================================================================
-
-MODEL_LABEL = "llama-3.3-70b-versatile"
-
 st.set_page_config(
     page_title="LangGraph AI Assistant",
     page_icon="🤖",
@@ -79,543 +29,795 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------------------------
-# Session state
-# ---------------------------------------------------------------------------
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-
-if "message_history" not in st.session_state:
-    st.session_state.message_history = []  # list[{"role", "content", "time"}]
-
-CONFIG = {"configurable": {"thread_id": st.session_state.thread_id}}
-
-
-def start_new_conversation():
-    """Used by both 'New Chat' and 'Clear Chat' — resets the visible
-    history *and* the LangGraph memory thread together, so the UI and
-    the model's actual context never drift apart."""
-    st.session_state.message_history = []
-    st.session_state.thread_id = str(uuid.uuid4())
-
-
-# ---------------------------------------------------------------------------
-# Theme — fonts, palette, glassmorphism, motion
-# ---------------------------------------------------------------------------
-st.markdown(
-    """
+# ============================================================================
+# CUSTOM CSS & STYLING - CONSISTENT LIGHT THEME EVERYWHERE
+# ============================================================================
+custom_css = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+    * {
+        box-sizing: border-box;
+    }
 
-:root{
-  --bg-deep:#0a0e1a;
-  --bg-mid:#0f1428;
-  --bg-violet:#1a1440;
-  --glass-bg:rgba(255,255,255,0.045);
-  --glass-bg-strong:rgba(255,255,255,0.075);
-  --glass-border:rgba(255,255,255,0.09);
-  --text-primary:#edeff7;
-  --text-secondary:#9aa3bf;
-  --text-tertiary:#6b7390;
-  --user-a:#3b6ff6;
-  --user-b:#8b5cf6;
-  --assistant-bg:rgba(28,31,44,0.75);
-  --accent-cyan:#22d3ee;
-  --accent-glow:rgba(99,102,241,0.4);
-  --shadow-soft:0 8px 28px rgba(0,0,0,0.35);
-  --shadow-glow:0 0 36px rgba(99,102,241,0.22);
-  --r-lg:22px;
-  --r-md:16px;
-  --r-sm:10px;
-}
+    :root {
+        --primary-color: #2563eb;
+        --primary-dark: #1e40af;
+        --primary-light: #3b82f6;
+        --secondary-color: #7c3aed;
+        --background-light: #f8fafc;
+        --surface-light: #ffffff;
+        --surface-hover: #f0f4f8;
+        --text-primary: #1e293b;
+        --text-secondary: #475569;
+        --text-muted: #64748b;
+        --border-soft: rgba(37, 99, 235, 0.15);
+        --success-color: #10b981;
+        --danger-color: #dc2626;
+    }
 
-html,body,[data-testid="stAppViewContainer"]{
-  font-family:'Inter',sans-serif;
-  color:var(--text-primary);
-}
+    /* ============ GLOBAL LIGHT BACKGROUND (every Streamlit container) ============ */
+    html, body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stHeader"],
+    [data-testid="stBottom"],
+    [data-testid="stBottomBlockContainer"],
+    [data-testid="stMainBlockContainer"] {
+        background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 35%, #f5f3ff 100%) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif !important;
+    }
 
-/* ---------- animated aurora background ---------- */
-[data-testid="stAppViewContainer"]{
-  background:
-    radial-gradient(1100px 600px at 12% -10%, rgba(59,111,246,0.16), transparent 60%),
-    radial-gradient(900px 700px at 110% 10%, rgba(139,92,246,0.18), transparent 55%),
-    radial-gradient(1000px 800px at 50% 120%, rgba(34,211,238,0.08), transparent 60%),
-    linear-gradient(160deg, var(--bg-deep) 0%, var(--bg-mid) 45%, var(--bg-violet) 100%);
-  background-attachment:fixed;
-}
-[data-testid="stHeader"]{ background:transparent; }
-#MainMenu, footer{ visibility:hidden; }
-html{ scroll-behavior:smooth; }
+    [data-testid="stHeader"] { box-shadow: none !important; }
 
-/* ---------- scrollbar ---------- */
-::-webkit-scrollbar{ width:8px; height:8px; }
-::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.14); border-radius:8px; }
-::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,0.24); }
+    [data-testid="stBottom"] > div {
+        background: transparent !important;
+    }
 
-/* ---------- glass utility ---------- */
-.glass-card{
-  background:var(--glass-bg);
-  backdrop-filter:blur(18px);
-  -webkit-backdrop-filter:blur(18px);
-  border:1px solid var(--glass-border);
-  border-radius:var(--r-lg);
-  box-shadow:var(--shadow-soft);
-}
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 6rem !important;
+        max-width: 900px !important;
+    }
 
-/* ---------- header ---------- */
-.app-header{
-  text-align:center;
-  padding:26px 20px 22px 20px;
-  margin-bottom:22px;
-  position:relative;
-}
-.app-title{
-  font-family:'Sora',sans-serif;
-  font-weight:800;
-  font-size:2.1rem;
-  letter-spacing:-0.02em;
-  margin:0;
-  background:linear-gradient(90deg,#8fb4ff 0%, #b39dff 45%, #7ce8f7 100%);
-  -webkit-background-clip:text;
-  background-clip:text;
-  color:transparent;
-}
-.app-subtitle{
-  font-family:'JetBrains Mono',monospace;
-  font-size:0.82rem;
-  color:var(--text-secondary);
-  margin-top:8px;
-  letter-spacing:0.02em;
-}
+    /* ============ SIDEBAR ============ */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #ffffff 0%, #f5f7ff 100%) !important;
+        border-right: 1px solid var(--border-soft);
+    }
 
-/* ---------- sidebar ---------- */
-section[data-testid="stSidebar"]{
-  background:linear-gradient(180deg, rgba(15,18,32,0.92), rgba(20,15,40,0.92));
-  border-right:1px solid var(--glass-border);
-  backdrop-filter:blur(18px);
-}
-section[data-testid="stSidebar"] .block-container{ padding-top:1.6rem; }
-.sidebar-brand{
-  font-family:'Sora',sans-serif;
-  font-weight:700;
-  font-size:1.05rem;
-  color:var(--text-primary);
-  margin-bottom:2px;
-}
-.sidebar-section-label{
-  font-family:'JetBrains Mono',monospace;
-  font-size:0.72rem;
-  text-transform:uppercase;
-  letter-spacing:0.08em;
-  color:var(--text-tertiary);
-  margin:18px 0 8px 2px;
-}
+    [data-testid="stSidebar"] * {
+        color: var(--text-primary) !important;
+    }
 
-.model-card{
-  background:var(--glass-bg-strong);
-  border:1px solid var(--glass-border);
-  border-radius:var(--r-md);
-  padding:12px 14px;
-  margin-bottom:6px;
-}
-.model-card .row{ display:flex; align-items:center; gap:8px; }
-.status-dot{
-  width:8px; height:8px; border-radius:50%;
-  background:#34d399;
-  box-shadow:0 0 8px #34d399;
-  flex-shrink:0;
-  animation:pulse-dot 2s ease-in-out infinite;
-}
-@keyframes pulse-dot{ 0%,100%{opacity:1;} 50%{opacity:0.45;} }
-.model-name{ font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:var(--text-primary); }
-.model-sub{ font-size:0.76rem; color:var(--text-tertiary); margin-top:2px; }
+    [data-testid="stSidebarContent"] { padding-top: 1rem; }
 
-.stat-grid{ display:flex; gap:8px; }
-.stat-chip{
-  flex:1;
-  background:var(--glass-bg-strong);
-  border:1px solid var(--glass-border);
-  border-radius:var(--r-sm);
-  padding:10px 8px;
-  text-align:center;
-}
-.stat-chip .num{ font-family:'Sora',sans-serif; font-weight:700; font-size:1.15rem; color:var(--text-primary); }
-.stat-chip .lbl{ font-size:0.68rem; color:var(--text-tertiary); margin-top:2px; }
+    /* ============ HEADER (softer, not heavy) ============ */
+    .header-container {
+        background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(238,242,255,0.9) 100%);
+        border: 1px solid var(--border-soft);
+        border-radius: 18px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 18px rgba(37, 99, 235, 0.08);
+        animation: fadeSlideDown 0.6s ease-out;
+    }
 
-/* sidebar buttons */
-section[data-testid="stSidebar"] .stButton>button{
-  width:100%;
-  border-radius:var(--r-md);
-  border:1px solid var(--glass-border);
-  background:var(--glass-bg-strong);
-  color:var(--text-primary);
-  font-family:'Inter',sans-serif;
-  font-weight:600;
-  padding:0.55rem 0.8rem;
-  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-}
-section[data-testid="stSidebar"] .stButton>button:hover{
-  transform:translateY(-2px);
-  border-color:rgba(139,92,246,0.5);
-  box-shadow:var(--shadow-glow);
-}
-section[data-testid="stSidebar"] .stButton>button:active{ transform:translateY(0px); }
+    @keyframes fadeSlideDown {
+        from { opacity: 0; transform: translateY(-12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
 
-/* primary New Chat button */
-div[data-testid="stSidebarUserContent"] div.element-container:has(button[kind="primary"]) button{
-  background:linear-gradient(135deg, var(--user-a), var(--user-b));
-  border:none;
-  color:#fff;
-}
+    .header-title {
+        font-size: 1.75rem;
+        font-weight: 600;
+        margin: 0;
+        letter-spacing: -0.01em;
+        background: linear-gradient(90deg, #2563eb, #7c3aed 60%, #2563eb);
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shineText 6s linear infinite;
+    }
 
-/* ---------- welcome card ---------- */
-.welcome-wrap{ display:flex; justify-content:center; margin-top:2.5vh; }
-.welcome-card{
-  max-width:640px;
-  width:100%;
-  padding:38px 34px;
-  text-align:center;
-  animation:fadeInUp .5s ease;
-}
-.welcome-emoji{
-  font-size:2.6rem;
-  filter:drop-shadow(0 0 22px rgba(139,92,246,0.5));
-}
-.welcome-title{
-  font-family:'Sora',sans-serif;
-  font-weight:700;
-  font-size:1.5rem;
-  margin:12px 0 6px 0;
-}
-.welcome-text{
-  color:var(--text-secondary);
-  font-size:0.95rem;
-  line-height:1.55;
-  margin-bottom:6px;
-}
+    @keyframes shineText {
+        to { background-position: 200% center; }
+    }
 
-/* suggestion buttons in main area */
-div[data-testid="stMainBlockContainer"] div[data-testid="column"] .stButton>button{
-  width:100%;
-  text-align:left;
-  border-radius:var(--r-md);
-  border:1px solid var(--glass-border);
-  background:var(--glass-bg-strong);
-  color:var(--text-primary);
-  padding:0.7rem 0.9rem;
-  font-size:0.86rem;
-  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-}
-div[data-testid="stMainBlockContainer"] div[data-testid="column"] .stButton>button:hover{
-  transform:translateY(-3px);
-  border-color:rgba(34,211,238,0.45);
-  box-shadow:0 10px 30px rgba(34,211,238,0.15);
-}
+    .header-subtitle {
+        margin: 0.35rem 0 0 0;
+        font-size: 0.92rem;
+        font-weight: 400;
+        color: var(--text-muted);
+    }
 
-/* ---------- chat messages ---------- */
-[data-testid="stChatMessage"]{
-  background:transparent !important;
-  border:none !important;
-  box-shadow:none !important;
-  padding:6px 0 !important;
-  gap:10px;
-  animation:fadeInUp .35s ease;
-}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]){
-  flex-direction:row-reverse;
-}
-[data-testid="stChatMessageAvatarUser"], [data-testid="stChatMessageAvatarAssistant"]{
-  border-radius:50% !important;
-  box-shadow:0 0 0 2px rgba(255,255,255,0.08), 0 0 18px rgba(99,102,241,0.25);
-}
-[data-testid="stChatMessageContent"]{
-  max-width:70%;
-  width:auto !important;
-  flex:0 1 auto !important;
-  padding:13px 17px;
-  box-shadow:var(--shadow-soft);
-  transition:transform .18s ease, box-shadow .18s ease;
-  font-size:0.94rem;
-  line-height:1.6;
-}
-[data-testid="stChatMessageContent"]:hover{
-  transform:translateY(-2px);
-}
-[data-testid="stChatMessageContent"] p{ margin-bottom:0.4em; }
-[data-testid="stChatMessageContent"] p:last-child{ margin-bottom:0; }
+    /* ============ SIDEBAR BUTTONS ============ */
+    .stButton > button {
+        width: 100%;
+        padding: 0.65rem 1rem !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        border: none !important;
+        transition: all 0.25s ease !important;
+    }
 
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageContent"]{
-  background:linear-gradient(135deg, var(--user-a), var(--user-b));
-  color:#ffffff;
-  border-radius:20px 20px 4px 20px;
-}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) [data-testid="stChatMessageContent"]{
-  background:var(--assistant-bg);
-  backdrop-filter:blur(14px);
-  border:1px solid var(--glass-border);
-  color:var(--text-primary);
-  border-radius:20px 20px 20px 4px;
-}
-.msg-time{
-  font-family:'JetBrains Mono',monospace;
-  font-size:0.68rem;
-  color:var(--text-tertiary);
-  margin-top:5px;
-  opacity:0.8;
-}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) .msg-time{ text-align:right; color:rgba(255,255,255,0.65); }
+    [data-testid="stSidebarContent"] div[data-testid="column"]:nth-of-type(1) .stButton > button {
+        background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%) !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3) !important;
+    }
+    [data-testid="stSidebarContent"] div[data-testid="column"]:nth-of-type(1) .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4) !important;
+    }
 
-/* ---------- typing indicator ---------- */
-.typing-row{ display:flex; align-items:center; gap:10px; padding:6px 0; animation:fadeInUp .3s ease; }
-.typing-avatar{
-  width:2rem;height:2rem;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  background:var(--assistant-bg);
-  border:1px solid var(--glass-border);
-  font-size:1rem;
-}
-.typing-bubble{
-  background:var(--assistant-bg);
-  backdrop-filter:blur(14px);
-  border:1px solid var(--glass-border);
-  border-radius:20px 20px 20px 4px;
-  padding:14px 18px;
-  display:flex;
-  gap:5px;
-  box-shadow:var(--shadow-soft);
-}
-.typing-bubble span{
-  width:7px;height:7px;border-radius:50%;
-  background:var(--accent-cyan);
-  opacity:0.5;
-  animation:bounce-dot 1.2s infinite ease-in-out;
-}
-.typing-bubble span:nth-child(2){ animation-delay:0.15s; }
-.typing-bubble span:nth-child(3){ animation-delay:0.3s; }
-@keyframes bounce-dot{
-  0%,60%,100%{ transform:translateY(0); opacity:0.5; }
-  30%{ transform:translateY(-6px); opacity:1; }
-}
+    [data-testid="stSidebarContent"] div[data-testid="column"]:nth-of-type(2) .stButton > button {
+        background: rgba(220, 38, 38, 0.08) !important;
+        color: var(--danger-color) !important;
+        border: 1.5px solid rgba(220, 38, 38, 0.25) !important;
+    }
+    [data-testid="stSidebarContent"] div[data-testid="column"]:nth-of-type(2) .stButton > button:hover {
+        background: rgba(220, 38, 38, 0.15) !important;
+        transform: translateY(-2px);
+    }
 
-/* ---------- chat input ---------- */
-[data-testid="stBottomBlockContainer"]{
-  background:linear-gradient(180deg, transparent, rgba(10,14,26,0.85) 40%);
-  backdrop-filter:blur(6px);
-}
-[data-testid="stChatInput"]{
-  background:var(--glass-bg-strong) !important;
-  border:1px solid var(--glass-border) !important;
-  border-radius:26px !important;
-  box-shadow:var(--shadow-soft);
-  transition:box-shadow .25s ease, border-color .25s ease;
-}
-[data-testid="stChatInput"]:focus-within{
-  border-color:rgba(139,92,246,0.55) !important;
-  box-shadow:0 0 0 4px rgba(139,92,246,0.14), var(--shadow-glow);
-}
-[data-testid="stChatInput"] textarea{
-  color:var(--text-primary) !important;
-  font-family:'Inter',sans-serif !important;
-}
-[data-testid="stChatInput"] textarea::placeholder{ color:var(--text-tertiary) !important; }
+    /* History item buttons */
+    .history-btn button {
+        background: #ffffff !important;
+        color: var(--text-secondary) !important;
+        border: 1px solid var(--border-soft) !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        font-weight: 500 !important;
+        padding: 0.5rem 0.75rem !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .history-btn button:hover {
+        background: rgba(37, 99, 235, 0.08) !important;
+        border-color: var(--primary-color) !important;
+        color: var(--primary-dark) !important;
+        transform: translateX(3px);
+    }
 
-/* ---------- misc ---------- */
-.stAlert{ border-radius:var(--r-md); }
-[data-testid="stExpander"]{
-  background:var(--glass-bg);
-  border:1px solid var(--glass-border);
-  border-radius:var(--r-md);
-}
+    .sidebar-section-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: var(--primary-dark) !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin: 1.25rem 0 0.6rem 0;
+        opacity: 0.85;
+    }
 
-@keyframes fadeInUp{
-  from{ opacity:0; transform:translateY(10px); }
-  to{ opacity:1; transform:translateY(0); }
-}
+    .sidebar-stat {
+        padding: 0.85rem 1rem;
+        background: linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(124,58,237,0.04) 100%);
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        margin-bottom: 0.6rem;
+        animation: fadeIn 0.5s ease-out;
+    }
 
-/* ---------- responsive ---------- */
-@media (max-width: 700px){
-  [data-testid="stChatMessageContent"]{ max-width:86%; }
-  .app-title{ font-size:1.6rem; }
-  .welcome-card{ padding:26px 20px; }
-}
+    @keyframes fadeIn {
+        from { opacity: 0; } to { opacity: 1; }
+    }
 
-/* ---------- reduced motion ---------- */
-@media (prefers-reduced-motion: reduce){
-  *{ animation:none !important; transition:none !important; }
-}
+    .stat-label {
+        font-size: 0.72rem;
+        color: var(--text-muted) !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+    }
+
+    .stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--primary-dark) !important;
+        margin-top: 0.15rem;
+    }
+
+    .about-section {
+        padding: 1rem;
+        background: #ffffff;
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        font-size: 0.85rem;
+    }
+
+    hr, [data-testid="stSidebar"] hr {
+        border-color: var(--border-soft) !important;
+        margin: 1rem 0 !important;
+    }
+
+    /* ============ WELCOME CARD ============ */
+    .welcome-container {
+        display: flex;
+        justify-content: center;
+        padding: 2rem 0;
+    }
+
+    .welcome-card {
+        background: #ffffff;
+        border: 1px solid var(--border-soft);
+        border-radius: 24px;
+        padding: 3rem 2.5rem;
+        max-width: 640px;
+        width: 100%;
+        text-align: center;
+        box-shadow: 0 10px 40px rgba(37, 99, 235, 0.1);
+        animation: cardPopIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes cardPopIn {
+        from { opacity: 0; transform: scale(0.94) translateY(10px); }
+        to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .welcome-icon {
+        font-size: 3.2rem;
+        margin-bottom: 0.75rem;
+        display: inline-block;
+        animation: floatIcon 3s ease-in-out infinite;
+    }
+
+    @keyframes floatIcon {
+        0%, 100% { transform: translateY(0) rotate(0deg); }
+        50% { transform: translateY(-8px) rotate(-4deg); }
+    }
+
+    .welcome-title {
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0 0 0.6rem 0;
+    }
+
+    .welcome-subtitle {
+        font-size: 0.95rem;
+        color: var(--text-muted);
+        line-height: 1.6;
+        max-width: 460px;
+        margin: 0 auto 1.75rem auto;
+    }
+
+    .welcome-features {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    .feature-item {
+        background: linear-gradient(135deg, rgba(37,99,235,0.06), rgba(124,58,237,0.05));
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        padding: 0.85rem;
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        transition: all 0.25s ease;
+    }
+
+    .feature-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.15);
+        border-color: var(--primary-color);
+        color: var(--primary-dark);
+    }
+
+    /* ============ CHAT MESSAGES ============ */
+    .chat-message {
+        display: flex;
+        margin-bottom: 1.1rem;
+    }
+
+    .chat-message.user { justify-content: flex-end; }
+    .chat-message.assistant { justify-content: flex-start; }
+
+    .user-message {
+        background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+        color: #ffffff !important;
+        padding: 0.9rem 1.25rem;
+        border-radius: 18px 18px 4px 18px;
+        max-width: 72%;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+        animation: slideInRight 0.35s ease-out;
+        line-height: 1.55;
+        font-size: 0.94rem;
+    }
+
+    .user-message .message-text, .user-message .message-time {
+        color: #ffffff !important;
+    }
+
+    @keyframes slideInRight {
+        from { opacity: 0; transform: translateX(16px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    .assistant-message {
+        background: #ffffff;
+        border: 1px solid var(--border-soft);
+        color: var(--text-primary) !important;
+        padding: 0.9rem 1.25rem;
+        border-radius: 18px 18px 18px 4px;
+        max-width: 72%;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+        animation: slideInLeft 0.35s ease-out;
+        line-height: 1.6;
+        font-size: 0.94rem;
+    }
+
+    .assistant-message .message-text, .assistant-message .message-time {
+        color: var(--text-primary) !important;
+    }
+
+    @keyframes slideInLeft {
+        from { opacity: 0; transform: translateX(-16px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    .message-text { word-wrap: break-word; }
+    .message-text p { margin: 0.4rem 0; }
+    .message-text p:first-child { margin-top: 0; }
+    .message-text p:last-child { margin-bottom: 0; }
+
+    .message-time {
+        font-size: 0.7rem;
+        opacity: 0.7;
+        margin-top: 0.4rem;
+        font-weight: 500;
+    }
+
+    .typing-indicator {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.4rem 0.2rem;
+    }
+
+    .typing-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--primary-color);
+        animation: typingBounce 1.3s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+    @keyframes typingBounce {
+        0%, 60%, 100% { opacity: 0.4; transform: translateY(0); }
+        30% { opacity: 1; transform: translateY(-6px); }
+    }
+
+    /* ============ CHAT INPUT (modern Streamlit selectors) ============ */
+    [data-testid="stChatInput"] {
+        background: #ffffff !important;
+        border: 1.5px solid var(--border-soft) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.08) !important;
+        transition: all 0.25s ease !important;
+    }
+
+    [data-testid="stChatInput"]:focus-within {
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12), 0 6px 18px rgba(37, 99, 235, 0.15) !important;
+    }
+
+    [data-testid="stChatInputTextArea"],
+    [data-testid="stChatInput"] textarea {
+        background: transparent !important;
+        color: var(--text-primary) !important;
+        font-size: 0.95rem !important;
+    }
+
+    [data-testid="stChatInputTextArea"]::placeholder,
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: var(--text-muted) !important;
+        opacity: 0.8;
+    }
+
+    [data-testid="stChatInputSubmitButton"] {
+        background: linear-gradient(135deg, #2563eb, #7c3aed) !important;
+        border-radius: 10px !important;
+    }
+    [data-testid="stChatInputSubmitButton"] svg { fill: #ffffff !important; }
+
+    /* Legacy selectors kept as a fallback for older Streamlit builds */
+    .stChatInputContainer, .stChatFloatingInputContainer {
+        background: transparent !important;
+    }
+    .stChatInputContainer input {
+        background: #ffffff !important;
+        color: var(--text-primary) !important;
+        border: 1.5px solid var(--border-soft) !important;
+        border-radius: 16px !important;
+    }
+
+    /* ============ MARKDOWN / MISC ============ */
+    .stMarkdown, .stMarkdown p { color: var(--text-primary) !important; }
+    .stMarkdown a { color: var(--primary-dark) !important; font-weight: 600; }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(37, 99, 235, 0.25);
+        border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(37, 99, 235, 0.4); }
+
+    @media (max-width: 768px) {
+        .header-title { font-size: 1.4rem; }
+        .user-message, .assistant-message { max-width: 92%; }
+        .welcome-features { grid-template-columns: 1fr; }
+        .welcome-card { padding: 2rem 1.25rem; }
+    }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+"""
 
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown('<div class="sidebar-brand">🤖 LangGraph Assistant</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color:var(--text-tertiary);font-size:0.78rem;">AI workspace</div>', unsafe_allow_html=True)
+st.markdown(custom_css, unsafe_allow_html=True)
 
-    st.markdown('<div class="sidebar-section-label">Session</div>', unsafe_allow_html=True)
-    if st.button("🆕  New Chat", use_container_width=True, type="primary"):
-        start_new_conversation()
-        st.rerun()
-    if st.button("🧹  Clear Chat", use_container_width=True):
-        start_new_conversation()
-        st.rerun()
+# ============================================================================
+# SESSION STATE INITIALIZATION
+# ============================================================================
+if "message_history" not in st.session_state:
+    st.session_state.message_history = []
 
-    st.markdown('<div class="sidebar-section-label">Conversation Stats</div>', unsafe_allow_html=True)
-    total_msgs = len(st.session_state.message_history)
-    user_msgs = sum(1 for m in st.session_state.message_history if m["role"] == "user")
-    ai_msgs = total_msgs - user_msgs
-    st.markdown(
-        f"""
-        <div class="stat-grid">
-          <div class="stat-chip"><div class="num">{total_msgs}</div><div class="lbl">Total</div></div>
-          <div class="stat-chip"><div class="num">{user_msgs}</div><div class="lbl">You</div></div>
-          <div class="stat-chip"><div class="num">{ai_msgs}</div><div class="lbl">AI</div></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+if "conversations" not in st.session_state:
+    # Each item: {"id": str, "title": str, "messages": [...], "created": str}
+    st.session_state.conversations = []
 
-    st.markdown('<div class="sidebar-section-label">Current Model</div>', unsafe_allow_html=True)
-    st.markdown(
-        f"""
-        <div class="model-card">
-          <div class="row">
-            <span class="status-dot"></span>
-            <span class="model-name">{MODEL_LABEL}</span>
-          </div>
-          <div class="model-sub">via Groq API &middot; LPU inference</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+if "conversation_count" not in st.session_state:
+    st.session_state.conversation_count = 0
 
-    st.markdown('<div class="sidebar-section-label">About</div>', unsafe_allow_html=True)
-    with st.expander("ℹ️  About this assistant"):
-        st.markdown(
-            """
-            **LangGraph AI Assistant** is a conversational agent built on a
-            LangGraph state graph, running inference through Groq's LPU
-            infrastructure for near-instant responses.
+if "start_time" not in st.session_state:
+    st.session_state.start_time = datetime.now()
 
-            - **Orchestration:** LangGraph
-            - **Inference:** Groq API
-            - **Model:** llama-3.3-70b-versatile
-            - **Interface:** Streamlit
+if "waiting_for_response" not in st.session_state:
+    st.session_state.waiting_for_response = False
 
-            Each new chat starts its own memory thread, so conversations
-            stay isolated from one another.
-            """
+
+def _archive_current_chat():
+    """Save the active conversation into history before starting a new one."""
+    if st.session_state.message_history:
+        first_user_msg = next(
+            (m["content"] for m in st.session_state.message_history if m["role"] == "user"),
+            "Conversation",
+        )
+        title = (first_user_msg[:38] + "…") if len(first_user_msg) > 38 else first_user_msg
+        st.session_state.conversations.insert(
+            0,
+            {
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "messages": st.session_state.message_history.copy(),
+                "created": datetime.now().strftime("%b %d, %H:%M"),
+            },
         )
 
-    if not BACKEND_READY:
-        st.markdown('<div class="sidebar-section-label">Setup</div>', unsafe_allow_html=True)
-        st.warning("`GROQ_API_KEY` is not set in the environment. Add it to enable chat.", icon="⚠️")
 
-# ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
+# ============================================================================
+# GROQ API BACKEND INTEGRATION (unchanged logic)
+# ============================================================================
+def invoke_chatbot(user_message: str) -> str:
+    """
+    Call your LangGraph chatbot with Groq API
+    """
+    try:
+        from langchain_groq import ChatGroq
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+        groq_api_key = os.getenv("GROQ_API_KEY")
+
+        if not groq_api_key:
+            return "❌ Error: GROQ_API_KEY not found in .env file. Please add it and restart the app."
+
+        llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+            groq_api_key=groq_api_key,
+        )
+
+        system_prompt = """You are LangGraph AI, a helpful, intelligent, and respectful AI assistant.
+
+Your characteristics:
+- You provide accurate, well-researched information
+- You're engaging and friendly in conversation
+- You think step-by-step for complex problems
+- You're honest about what you don't know
+- You format responses clearly with good structure
+- You keep responses concise but comprehensive
+
+Language rule (very important):
+- Always reply in the SAME language and style the user just used.
+- If the user writes in Roman Urdu (Urdu written using English/Latin letters, e.g. "aap kaisy hain"), you MUST reply in Roman Urdu too — not in English and not in Urdu script.
+- If the user writes in English, reply in English. If they mix English and Roman Urdu, mirror that mix naturally.
+- Never switch language on your own; always match the user's most recent message.
+
+When appropriate, use markdown formatting for lists, code blocks, and emphasis."""
+
+        messages = [SystemMessage(content=system_prompt)]
+
+        for msg in st.session_state.message_history:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            else:
+                messages.append(AIMessage(content=msg["content"]))
+
+        messages.append(HumanMessage(content=user_message))
+
+        response = llm.invoke(messages)
+        return response.content
+
+    except ImportError:
+        return "❌ Error: langchain_groq not installed. Run: pip install langchain-groq"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+# ============================================================================
+# HEADER
+# ============================================================================
 st.markdown(
     """
-    <div class="app-header">
-        <h1 class="app-title">🤖 LangGraph AI Assistant</h1>
-        <div class="app-subtitle">Powered by LangGraph + Groq + Streamlit</div>
+    <div class="header-container">
+        <h1 class="header-title">🤖 LangGraph AI Assistant</h1>
+        <p class="header-subtitle">Powered by LangGraph + Groq + Streamlit</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------------------------------------------------------
-# Main chat area
-# ---------------------------------------------------------------------------
-pending_prompt = st.session_state.pop("pending_prompt", None)
+# ============================================================================
+# SIDEBAR
+# ============================================================================
+with st.sidebar:
+    st.markdown("### 💬 Chat Controls")
 
-if not st.session_state.message_history:
-    st.markdown('<div class="welcome-wrap">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ New Chat", use_container_width=True, key="new_chat_btn"):
+            _archive_current_chat()
+            st.session_state.message_history = []
+            st.session_state.conversation_count += 1
+            st.rerun()
+
+    with col2:
+        if st.button("🗑️ Clear Chat", use_container_width=True, key="clear_btn"):
+            st.session_state.message_history = []
+            st.rerun()
+
+    st.divider()
+
+    # Statistics
+    st.markdown('<p class="sidebar-section-title">📊 Statistics</p>', unsafe_allow_html=True)
+
+    scol1, scol2 = st.columns(2)
+    with scol1:
+        st.markdown(
+            f"""
+            <div class="sidebar-stat">
+                <div class="stat-label">Messages</div>
+                <div class="stat-value">{len(st.session_state.message_history)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with scol2:
+        st.markdown(
+            f"""
+            <div class="sidebar-stat">
+                <div class="stat-label">Conversations</div>
+                <div class="stat-value">{len(st.session_state.conversations)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    elapsed_time = datetime.now() - st.session_state.start_time
+    minutes = int(elapsed_time.total_seconds() / 60)
+
+    st.markdown(
+        f"""
+        <div class="sidebar-stat">
+            <div class="stat-label">Session Time</div>
+            <div class="stat-value">{minutes}m</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+
+    # ---- Chat History ----
+    st.markdown('<p class="sidebar-section-title">🕘 Recent Conversations</p>', unsafe_allow_html=True)
+
+    if not st.session_state.conversations:
+        st.markdown(
+            '<p style="font-size:0.82rem; color:#64748b;">No saved conversations yet. '
+            'Start chatting, then hit "New Chat" to save this one.</p>',
+            unsafe_allow_html=True,
+        )
+    else:
+        for convo in st.session_state.conversations[:12]:
+            st.markdown('<div class="history-btn">', unsafe_allow_html=True)
+            if st.button(f"💬 {convo['title']}", key=f"history_{convo['id']}", use_container_width=True):
+                _archive_current_chat()
+                st.session_state.message_history = convo["messages"].copy()
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    # Model Information
+    st.markdown('<p class="sidebar-section-title">⚙️ Configuration</p>', unsafe_allow_html=True)
+
     st.markdown(
         """
-        <div class="glass-card welcome-card">
-            <div class="welcome-emoji">👋</div>
-            <div class="welcome-title">Welcome to LangGraph AI Assistant</div>
-            <div class="welcome-text">
-                Ask a question, brainstorm an idea, or paste something you'd like
-                help with — responses are generated by Llama 3.3 70B on Groq's
-                LPU inference engine, so they land fast.
+        <div class="sidebar-stat">
+            <div class="stat-label">Current Model</div>
+            <div style="color: #2563eb; font-weight: 700; margin-top: 0.4rem; font-size: 0.95rem;">
+                llama-3.3-70b
+            </div>
+            <div style="color: #64748b; font-size: 0.78rem; margin-top: 0.2rem; font-weight: 600;">
+                Provider: Groq
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.write("")
-    suggestions = [
-        ("💡", "Explain a concept", "Explain quantum computing like I'm a curious beginner."),
-        ("🧑‍💻", "Help me code", "Help me debug a Python function that's throwing a KeyError."),
-        ("✍️", "Draft something", "Draft a polite follow-up email after a job interview."),
-        ("🧠", "Brainstorm ideas", "Brainstorm 5 unique weekend project ideas for a developer."),
-    ]
-    cols = st.columns(2)
-    for i, (icon, label, full_prompt) in enumerate(suggestions):
-        with cols[i % 2]:
-            if st.button(f"{icon}  {label}", key=f"sugg_{i}", use_container_width=True):
-                st.session_state.pending_prompt = full_prompt
-                st.rerun()
-else:
-    for msg in st.session_state.message_history:
-        avatar = "🤖" if msg["role"] == "assistant" else "🧑"
-        with st.chat_message(msg["role"], avatar=avatar):
-            st.markdown(msg["content"])
-            st.markdown(f'<div class="msg-time">{msg["time"]}</div>', unsafe_allow_html=True)
+    st.divider()
 
-# ---------------------------------------------------------------------------
-# Input + generation
-# ---------------------------------------------------------------------------
-chat_prompt = st.chat_input(
-    "Message LangGraph AI Assistant..." if BACKEND_READY else "Set GROQ_API_KEY to start chatting",
-    disabled=not BACKEND_READY,
-)
-prompt = pending_prompt or chat_prompt
+    # About Section
+    st.markdown('<p class="sidebar-section-title">ℹ️ About</p>', unsafe_allow_html=True)
 
-if prompt and BACKEND_READY:
-    now = datetime.now().strftime("%H:%M")
-    st.session_state.message_history.append({"role": "user", "content": prompt, "time": now})
-    with st.chat_message("user", avatar="🧑"):
-        st.markdown(prompt)
-        st.markdown(f'<div class="msg-time">{now}</div>', unsafe_allow_html=True)
-
-    typing_slot = st.empty()
-    typing_slot.markdown(
+    st.markdown(
         """
-        <div class="typing-row">
-            <div class="typing-avatar">🤖</div>
-            <div class="typing-bubble"><span></span><span></span><span></span></div>
+        <div class="about-section">
+            <div style="font-weight:700; color:#1e293b; margin-bottom:0.4rem;">LangGraph AI</div>
+            <p style="margin: 0 0 0.75rem 0; color: #475569;">
+                A modern, premium chatbot interface powered by LangGraph, Groq API, and Streamlit.
+            </p>
+            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(37, 99, 235, 0.15);">
+                <p style="margin: 0; font-size: 0.82rem; color: #64748b; line-height: 1.75; font-weight: 500;">
+                    <strong style="color: #2563eb;">Features:</strong><br>
+                    ✨ Real-time responses<br>
+                    🎨 Modern UI/UX<br>
+                    ⚡ Fast inference<br>
+                    🔒 Secure API<br>
+                    💬 Multi-turn conversations
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# ============================================================================
+# MAIN CHAT AREA
+# ============================================================================
+if not st.session_state.message_history:
+    st.markdown(
+        """
+        <div class="welcome-container">
+            <div class="welcome-card">
+                <div class="welcome-icon">🚀</div>
+                <h2 class="welcome-title">Welcome to LangGraph AI</h2>
+                <p class="welcome-subtitle">
+                    Start a conversation with our advanced AI assistant powered by LangGraph and Groq's latest models.
+                </p>
+                <div class="welcome-features">
+                    <div class="feature-item">⚡ Lightning Fast</div>
+                    <div class="feature-item">🤖 Advanced AI</div>
+                    <div class="feature-item">💬 Natural Language</div>
+                    <div class="feature-item">🎯 Accurate Responses</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    for message in st.session_state.message_history:
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        timestamp = message.get("timestamp", "")
+
+        if role == "user":
+            st.markdown(
+                f"""
+                <div class="chat-message user">
+                    <div class="user-message">
+                        <div class="message-text">{content}</div>
+                        <div class="message-time">{timestamp}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="chat-message assistant">
+                    <div class="assistant-message">
+                        <div class="message-text">{content}</div>
+                        <div class="message-time">{timestamp}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+# ============================================================================
+# CHAT INPUT
+# ============================================================================
+user_input = st.chat_input(
+    "💬 Type your message here...",
+    key="user_input",
+)
+
+# ============================================================================
+# MESSAGE HANDLING & RESPONSE GENERATION
+# ============================================================================
+if user_input:
+    user_timestamp = datetime.now().strftime("%H:%M:%S")
+    st.session_state.message_history.append({
+        "role": "user",
+        "content": user_input,
+        "timestamp": user_timestamp,
+    })
+    st.session_state.waiting_for_response = True
+    st.rerun()
+
+if st.session_state.waiting_for_response:
+    typing_placeholder = st.empty()
+    typing_placeholder.markdown(
+        """
+        <div class="chat-message assistant">
+            <div class="assistant-message">
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     try:
-        with st.spinner("", show_time=False):
-            response = chatbot.invoke({"messages": [HumanMessage(content=prompt)]}, config=CONFIG)
-            ai_content = response["messages"][-1].content
-    except Exception as exc:  # keep the UI alive even if the API call fails
-        ai_content = f"⚠️ Something went wrong reaching Groq: `{exc}`"
+        response_text = invoke_chatbot(st.session_state.message_history[-1]["content"])
+        typing_placeholder.empty()
 
-    typing_slot.empty()
+        assistant_timestamp = datetime.now().strftime("%H:%M:%S")
+        st.session_state.message_history.append({
+            "role": "assistant",
+            "content": response_text,
+            "timestamp": assistant_timestamp,
+        })
 
-    reply_time = datetime.now().strftime("%H:%M")
-    with st.chat_message("assistant", avatar="🤖"):
-        st.markdown(ai_content)
-        st.markdown(f'<div class="msg-time">{reply_time}</div>', unsafe_allow_html=True)
+        st.session_state.waiting_for_response = False
+        st.rerun()
 
-    st.session_state.message_history.append(
-        {"role": "assistant", "content": ai_content, "time": reply_time}
-    )
-import streamlit as st
-import time
-from typing import List, Dict, Any
+    except Exception as e:
+        typing_placeholder.empty()
+        st.error(f"❌ Error: {str(e)}")
+        if st.session_state.message_history and st.session_state.message_history[-1]["role"] == "user":
+            st.session_state.message_history.pop()
+        st.session_state.waiting_for_response = False
 
-# ----- YOUR BACKEND (unchanged) -----
+# ============================================================================
+# FOOTER
+# ============================================================================
+st.markdown(
+    """
+    <hr style="border: 1px solid rgba(37, 99, 235, 0.15); margin: 2rem 0 0 0;">
+    <p style="text-align: center; color: #64748b; font-size: 0.82rem; padding: 1rem 0; margin: 0;">
+        Made with ❤️ using Streamlit • Powered by LangGraph & Groq API
+    </p>
+    """,
+    unsafe_allow_html=True,
+)
